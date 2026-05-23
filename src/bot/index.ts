@@ -57,7 +57,7 @@ export async function startBot() {
 
   client.once("ready", () => {
     console.log(`[Bot] Logged in as ${client.user?.tag}`);
-    client.user?.setActivity("Roblox games", { type: 3 });
+    client.user?.setActivity("@decay073117", { type: 3 });
 
     setInterval(() => runTrackerCycle(client), TRACKER_INTERVAL_MS);
     setTimeout(() => runTrackerCycle(client), 5_000);
