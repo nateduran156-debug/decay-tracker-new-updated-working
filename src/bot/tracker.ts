@@ -24,16 +24,41 @@ export async function runTrackerCycle(client: Client) {
         const currentUniverseId = presence.universeId ?? null;
         const isInGame = presence.userPresenceType === 2;
 
-        // Session key uniquely identifies which server instance the player is in.
-        // If the API provides a gameId (UUID per-server), use it for precision.
-        // Otherwise fall back to placeId so we at least detect game switches.
+        // gameId is a UUID that identifies a specific server instance.
+        // The Roblox presence API does not always return it — it can be null
+        // even when the player is in the same server across polling cycles.
+        // We store it when available, and fall back to a "p:<placeId>" key otherwise.
         const rawGameId = presence.gameId ?? null;
         const sessionKey = rawGameId ?? (currentPlaceId ? `p:${currentPlaceId}` : null);
 
         for (const entry of entries) {
           const wasInGame = entry.lastGameId !== null;
-          // sessionChanged is true when the player switches servers or games
-          const sessionChanged = wasInGame && entry.lastGameId !== sessionKey;
+
+          // Determine whether the player has genuinely moved to a different server.
+          //
+          // The Roblox API sometimes returns gameId (a per-server UUID) and sometimes
+          // returns null for the very same server across consecutive cycles. A naive
+          // string comparison would treat that inconsistency as a server change and
+          // fire a duplicate alert. To avoid that, we detect when gameId availability
+          // has changed between cycles and fall back to placeId comparison instead.
+          let sessionChanged = false;
+          if (wasInGame) {
+            const prevIsPlaceFallback = entry.lastGameId!.startsWith("p:");
+            const currIsPlaceFallback = rawGameId === null;
+
+            if (!prevIsPlaceFallback && !currIsPlaceFallback) {
+              // Both cycles have real server UUIDs — compare them directly.
+              sessionChanged = entry.lastGameId !== rawGameId;
+            } else if (prevIsPlaceFallback && currIsPlaceFallback) {
+              // Both cycles use the place-based fallback — compare place IDs.
+              sessionChanged = entry.lastGameId !== sessionKey;
+            } else {
+              // Availability of gameId changed between cycles (API inconsistency).
+              // Use placeId to decide — only notify if the player moved to a
+              // completely different game, not just because the UUID appeared/vanished.
+              sessionChanged = entry.lastPlaceId !== currentPlaceId;
+            }
+          }
 
           if (isInGame && (!wasInGame || sessionChanged)) {
             // Always store the session key so we do not re-fire on the next cycle
@@ -43,10 +68,10 @@ export async function runTrackerCycle(client: Client) {
             if (!settings.dmOnJoin) continue;
 
             // Resolve the game name.
-            // The presence payload carries universeId directly, so we can skip
-            // an extra round-trip and resolve the name in a single call.
+            // The presence payload carries universeId directly (when the cookie is set),
+            // so we can resolve the name in a single call.
             // getGameName is used only as a fallback when universeId is absent.
-            let gameName = "Untitled Game";
+            let gameName = "Unknown Game";
             if (currentUniverseId) {
               const details = await getUniverseDetails(currentUniverseId);
               gameName = details?.name ?? gameName;

@@ -70,9 +70,11 @@ export async function getUserById(userId: number): Promise<RobloxUser | null> {
 
 export async function getUserPresence(userId: number): Promise<RobloxPresence | null> {
   try {
-    const res = await axios.post(`${PRESENCE}/v1/presence/users`, {
-      userIds: [userId],
-    });
+    const res = await axios.post(
+      `${PRESENCE}/v1/presence/users`,
+      { userIds: [userId] },
+      { headers: cookieHeaders() }
+    );
     return res.data.userPresences?.[0] ?? null;
   } catch {
     return null;
